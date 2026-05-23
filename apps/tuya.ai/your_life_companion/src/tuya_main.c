@@ -17,9 +17,19 @@
 #include "tuya_cloud_types.h"
 
 #include <assert.h>
+#include <string.h>
 #include "cJSON.h"
 #include "tal_api.h"
 #include "tuya_config.h"
+#if __has_include("wifi_config.h")
+#include "wifi_config.h"
+#endif
+#ifndef WIFI_DEV_SSID
+#define WIFI_DEV_SSID ""
+#endif
+#ifndef WIFI_DEV_PASSWORD
+#define WIFI_DEV_PASSWORD ""
+#endif
 #include "tuya_iot.h"
 #include "tuya_iot_dp.h"
 #include "netmgr.h"
@@ -350,7 +360,18 @@ void user_main(void)
 #endif
     netmgr_init(type);
 #if defined(ENABLE_WIFI) && (ENABLE_WIFI == 1)
-    netmgr_conn_set(NETCONN_WIFI, NETCONN_CMD_NETCFG, &(netcfg_args_t){.type = NETCFG_TUYA_BLE | NETCFG_TUYA_WIFI_AP});
+    if (WIFI_DEV_SSID[0] != '\0') {
+        netconn_wifi_info_t wifi_info = {0};
+        strncpy(wifi_info.ssid, WIFI_DEV_SSID, sizeof(wifi_info.ssid) - 1);
+        wifi_info.ssid[sizeof(wifi_info.ssid) - 1] = '\0';
+        strncpy(wifi_info.pswd, WIFI_DEV_PASSWORD, sizeof(wifi_info.pswd) - 1);
+        wifi_info.pswd[sizeof(wifi_info.pswd) - 1] = '\0';
+        PR_NOTICE("Using build-time WiFi SSID: %s", wifi_info.ssid);
+        netmgr_conn_set(NETCONN_WIFI, NETCONN_CMD_SSID_PSWD, &wifi_info);
+    } else {
+        netmgr_conn_set(NETCONN_WIFI, NETCONN_CMD_NETCFG,
+                        &(netcfg_args_t){.type = NETCFG_TUYA_BLE | NETCFG_TUYA_WIFI_AP});
+    }
 #endif
 
     PR_DEBUG("tuya_iot_init success");

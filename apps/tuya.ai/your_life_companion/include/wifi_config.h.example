@@ -1,0 +1,20 @@
+/**
+ * @file wifi_config.h.example
+ * @brief Build-time WiFi credentials for development / lab use.
+ *
+ * Copy to wifi_config.h and fill in your router SSID and password:
+ *   cp include/wifi_config.h.example include/wifi_config.h
+ *
+ * When WIFI_DEV_SSID is non-empty, the device connects at boot instead of
+ * waiting for SmartLife Bluetooth/AP provisioning.
+ *
+ * wifi_config.h is gitignored — do not commit real credentials.
+ */
+
+#ifndef WIFI_CONFIG_H_
+#define WIFI_CONFIG_H_
+
+#define WIFI_DEV_SSID     ""
+#define WIFI_DEV_PASSWORD ""
+
+#endif
