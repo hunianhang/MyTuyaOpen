@@ -14,6 +14,7 @@
 #include "app_weather.h"
 #include "app_alarm.h"
 #include "app_todo.h"
+#include "app_medicine.h"
 
 #if defined(ENABLE_WIFI) && (ENABLE_WIFI == 1)
 #include "tkl_wifi.h"
@@ -185,6 +186,7 @@ OPERATE_RET app_chat_bot_init(void)
     TUYA_CALL_ERR_LOG(app_weather_init());
     TUYA_CALL_ERR_LOG(app_alarm_init());
     TUYA_CALL_ERR_LOG(app_todo_init());
+    TUYA_CALL_ERR_LOG(app_medicine_init());
 #endif
 
 #if defined(ENABLE_COMP_AI_PICTURE) && (ENABLE_COMP_AI_PICTURE == 1)
