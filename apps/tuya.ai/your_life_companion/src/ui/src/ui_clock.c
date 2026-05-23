@@ -5,7 +5,11 @@
  */
 #include <time.h>
 #include "tal_api.h"
+#if __has_include("lvgl.h")
 #include "lvgl.h"
+#else
+#include "lvgl/lvgl.h"
+#endif
 #include "ai_ui_manage.h"
 #include "ai_ui_icon_font.h"
 #include "font_awesome_symbols.h"

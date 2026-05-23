@@ -4,7 +4,11 @@
  * @copyright Copyright (c) 2021-2026 Tuya Inc. All Rights Reserved.
  */
 #include "tal_api.h"
+#if __has_include("lvgl.h")
 #include "lvgl.h"
+#else
+#include "lvgl/lvgl.h"
+#endif
 #include "lv_vendor.h"
 #include "ai_ui_manage.h"
 #include "app_ui.h"
