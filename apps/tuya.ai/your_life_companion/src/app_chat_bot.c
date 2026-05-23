@@ -19,6 +19,7 @@
 ************************macro define************************
 ***********************************************************/
 #define PRINTF_FREE_HEAP_TTIME (10 * 1000)
+#define DISP_NET_STATUS_TIME   (1 * 1000)
 
 /***********************************************************
 ***********************typedef define***********************
@@ -33,6 +34,10 @@
 ***********************************************************/
 static TIMER_ID sg_printf_heap_tm;
 
+#if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
+static AI_UI_WIFI_STATUS_E sg_wifi_status = AI_UI_WIFI_STATUS_DISCONNECTED;
+static TIMER_ID            sg_disp_status_tm;
+#endif
 /***********************************************************
 ***********************function define**********************
 ***********************************************************/
@@ -48,6 +53,48 @@ static void __printf_free_heap_tm_cb(TIMER_ID timer_id, void *arg)
 #endif
 }
 
+#if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
+static void __display_net_status_update(void)
+{
+    AI_UI_WIFI_STATUS_E wifi_status = AI_UI_WIFI_STATUS_DISCONNECTED;
+    netmgr_status_e     net_status  = NETMGR_LINK_DOWN;
+
+    netmgr_conn_get(NETCONN_AUTO, NETCONN_CMD_STATUS, &net_status);
+    if (net_status == NETMGR_LINK_UP) {
+#if defined(ENABLE_WIFI) && (ENABLE_WIFI == 1)
+        // get rssi
+        int8_t rssi = 0;
+#ifndef PLATFORM_T5
+        // BUG: Getting RSSI causes a crash on T5 platform
+        tkl_wifi_station_get_conn_ap_rssi(&rssi);
+#endif
+        if (rssi >= -60) {
+            wifi_status = AI_UI_WIFI_STATUS_GOOD;
+        } else if (rssi >= -70) {
+            wifi_status = AI_UI_WIFI_STATUS_FAIR;
+        } else {
+            wifi_status = AI_UI_WIFI_STATUS_WEAK;
+        }
+#else
+        wifi_status = AI_UI_WIFI_STATUS_GOOD;
+#endif
+    } else {
+        wifi_status = AI_UI_WIFI_STATUS_DISCONNECTED;
+    }
+
+    if (wifi_status != sg_wifi_status) {
+        sg_wifi_status = wifi_status;
+        ai_ui_disp_msg(AI_UI_DISP_NETWORK, (uint8_t *)&wifi_status, sizeof(AI_UI_WIFI_STATUS_E));
+    }
+}
+
+static void __display_status_tm_cb(TIMER_ID timer_id, void *arg)
+{
+    __display_net_status_update();
+}
+
+#endif
+
 #if defined(ENABLE_COMP_AI_VIDEO) && (ENABLE_COMP_AI_VIDEO == 1)
 static void __ai_video_display_flush(TDL_CAMERA_FRAME_T *frame)
 {
@@ -57,6 +104,55 @@ static void __ai_video_display_flush(TDL_CAMERA_FRAME_T *frame)
 }
 #endif
 
+#if defined(ENABLE_COMP_AI_PICTURE) && (ENABLE_COMP_AI_PICTURE == 1)
+static void __ai_picture_output_notify_cb(AI_PICTURE_OUTPUT_NOTIFY_T *info)
+{
+    OPERATE_RET rt = OPRT_OK;
+
+    if(NULL == info) {
+        return;
+    }
+
+    if(AI_PICTURE_OUTPUT_START == info->event) {
+        AI_PICTURE_CONVERT_CFG_T convert_cfg = {
+            .in_fmt = TUYA_FRAME_FMT_JPEG,
+            .in_frame_size = info->total_size,
+            .out_fmt = TUYA_FRAME_FMT_RGB565,
+        };
+
+        TUYA_CALL_ERR_LOG(ai_picture_convert_start(&convert_cfg)); 
+    }else if(AI_PICTURE_OUTPUT_SUCCESS == info->event) {
+        AI_PICTURE_INFO_T picture_info;
+
+        memset(&picture_info, 0, sizeof(AI_PICTURE_INFO_T));
+
+        TUYA_CALL_ERR_LOG(ai_picture_convert(&picture_info));
+        if(rt == OPRT_OK) {
+            PR_NOTICE("Picture convert success: fmt=%d, width=%d, height=%d, size=%d",\
+                       picture_info.fmt, picture_info.width, picture_info.height, picture_info.frame_size);
+        #if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
+            ai_ui_disp_picture(picture_info.fmt, picture_info.width, picture_info.height,\
+                               picture_info.frame, picture_info.frame_size);
+
+        #endif
+        }
+    
+        TUYA_CALL_ERR_LOG(ai_picture_convert_stop());
+    }else if(AI_PICTURE_OUTPUT_FAILED == info->event) {
+        TUYA_CALL_ERR_LOG(ai_picture_convert_stop());
+    }else {
+        ;
+    }
+}
+
+void __ai_picture_output_cb(uint8_t *data, uint32_t len, bool is_eof)
+{
+    ai_picture_convert_feed(data, len);
+}
+
+#endif
+
+
 static void __ai_chat_handle_event(AI_NOTIFY_EVENT_T *event)
 {
     (void)event;
@@ -65,9 +161,6 @@ static void __ai_chat_handle_event(AI_NOTIFY_EVENT_T *event)
 OPERATE_RET app_chat_bot_init(void)
 {
     OPERATE_RET rt = OPRT_OK;
-
-    // custom ui register
-    TUYA_CALL_ERR_RETURN(app_ai_ui_register());
 
     AI_CHAT_MODE_CFG_T ai_chat_cfg = {
         .default_mode = AI_CHAT_MODE_WAKEUP,
@@ -88,9 +181,29 @@ OPERATE_RET app_chat_bot_init(void)
     TUYA_CALL_ERR_RETURN(ai_mcp_init());
 #endif
 
+#if defined(ENABLE_COMP_AI_PICTURE) && (ENABLE_COMP_AI_PICTURE == 1)
+    AI_PICTURE_OUTPUT_CFG_T picture_output_cfg = {
+        .notify_cb = __ai_picture_output_notify_cb,
+        .output_cb = __ai_picture_output_cb,
+    };
+
+    TUYA_CALL_ERR_RETURN(ai_picture_output_init(&picture_output_cfg));
+#endif
+
     // Free heap size
     tal_sw_timer_create(__printf_free_heap_tm_cb, NULL, &sg_printf_heap_tm);
     tal_sw_timer_start(sg_printf_heap_tm, PRINTF_FREE_HEAP_TTIME, TAL_TIMER_CYCLE);
+
+#if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
+    ai_ui_disp_msg(AI_UI_DISP_NETWORK, (uint8_t *)&sg_wifi_status, sizeof(AI_UI_WIFI_STATUS_E));
+
+    ai_ui_disp_msg(AI_UI_DISP_STATUS, (uint8_t *)INITIALIZING, strlen(INITIALIZING));
+    ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_NEUTRAL, strlen(EMOJI_NEUTRAL));
+
+    // display status update
+    tal_sw_timer_create(__display_status_tm_cb, NULL, &sg_disp_status_tm);
+    tal_sw_timer_start(sg_disp_status_tm, DISP_NET_STATUS_TIME, TAL_TIMER_CYCLE);
+#endif
 
     return OPRT_OK;
 }

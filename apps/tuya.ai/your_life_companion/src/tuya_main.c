@@ -28,6 +28,9 @@
 #include "tuya_authorize.h"
 #if defined(ENABLE_WIFI) && (ENABLE_WIFI == 1)
 #include "netconn_wifi.h"
+#else
+// Stub WiFi functions for non-WiFi platforms (e.g., Ubuntu with wired)
+#include "tkl_wifi_stub.h"
 #endif
 #if defined(ENABLE_WIRED) && (ENABLE_WIRED == 1)
 #include "netconn_wired.h"
@@ -39,10 +42,15 @@
 #include "board_com_api.h"
 
 #include "app_chat_bot.h"
-#include "app_clock.h"
 #include "reset_netcfg.h"
-#include "app_servo.h"
-#include "app_gesture.h"
+
+#if defined(ENABLE_BATTERY) && (ENABLE_BATTERY == 1)
+#include "app_battery.h"
+#endif
+
+#if defined(ENABLE_QRCODE) && (ENABLE_QRCODE == 1)
+#include "qrencode_print.h"
+#endif
 
 /* Tuya device handle */
 tuya_iot_client_t ai_client;
@@ -55,10 +63,6 @@ tuya_iot_license_t license;
 #endif
 
 #define DPID_VOLUME 3
-#define DPID_SERVO  5
-
-bool                  _s_servo_busy   = FALSE;
-static SERVO_ACTION_E _s_servo_action = SERVO_CENTER;
 
 /**
  * @brief user defined log output api, in this demo, it will use uart0 as log-tx
@@ -103,131 +107,6 @@ void user_upgrade_notify_on(tuya_iot_client_t *client, cJSON *upgrade)
     PR_INFO("HTTPS URL: %s", cJSON_IsString(https_item) ? https_item->valuestring : "N/A");
 }
 
-static void __servo_control_wk_cb(void *data)
-{
-    PR_DEBUG("Servo action: %d", _s_servo_action);
-
-    // Trigger corresponding emoji expression for servo movement
-#if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
-    switch (_s_servo_action) {
-    case SERVO_UP:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_HAPPY, strlen(EMOJI_HAPPY));
-        break;
-    case SERVO_DOWN:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_SAD, strlen(EMOJI_SAD));
-        break;
-    case SERVO_LEFT:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_LEFT, strlen(EMOJI_LEFT));
-        break;
-    case SERVO_RIGHT:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_RIGHT, strlen(EMOJI_RIGHT));
-        break;
-    case SERVO_CENTER:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_NEUTRAL, strlen(EMOJI_NEUTRAL));
-        break;
-    case SERVO_NOD:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_WAKEUP, strlen(EMOJI_WAKEUP));
-        break;
-    default:
-        break;
-    }
-#endif
-
-    _s_servo_busy = TRUE;
-    ai_ui_disp_msg(AI_UI_DISP_PAUSE_EMOJI_CYCLE, NULL, 0);
-    app_servo_move(_s_servo_action);
-    ai_ui_disp_msg(AI_UI_DISP_RESUME_EMOJI_CYCLE, NULL, 0);
-    _s_servo_busy = FALSE;
-}
-
-static void __gesture_detect_cb(GESTURE_TYPE_E gesture)
-{
-    PR_DEBUG("Gesture detected: %d", gesture);
-
-    // Hide weather clock and show emoji mode
-#if defined(ENABLE_COMP_AI_DISPLAY) && (ENABLE_COMP_AI_DISPLAY == 1)
-    ai_ui_disp_msg(AI_UI_DISP_EMOJI_UI_SHOW, NULL, 0);
-
-    // Trigger corresponding emoji expression
-    switch (gesture) {
-    case GESTURE_RIGHT:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_RIGHT, strlen(EMOJI_RIGHT));
-        _s_servo_action = SERVO_RIGHT;
-        break;
-    case GESTURE_LEFT:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_LEFT, strlen(EMOJI_LEFT));
-        _s_servo_action = SERVO_LEFT;
-        break;
-    case GESTURE_UP:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_HAPPY, strlen(EMOJI_HAPPY));
-        _s_servo_action = SERVO_UP;
-        break;
-    case GESTURE_DOWN:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_SAD, strlen(EMOJI_SAD));
-        _s_servo_action = SERVO_DOWN;
-        break;
-    case GESTURE_CLOCKWISE:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_SURPRISE, strlen(EMOJI_SURPRISE));
-        _s_servo_action = SERVO_CLOCKWISE;
-        break;
-    case GESTURE_ANTICLOCKWISE:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_ANGRY, strlen(EMOJI_ANGRY));
-        _s_servo_action = SERVO_ANTICLOCKWISE;
-        break;
-    case GESTURE_FORWARD:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_WAKEUP, strlen(EMOJI_WAKEUP));
-        _s_servo_action = SERVO_NOD;
-        break;
-    case GESTURE_BACKWARD:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_SLEEP, strlen(EMOJI_SLEEP));
-        _s_servo_action = SERVO_CENTER;
-        break;
-    // Add fun expressions for special gestures
-    case GESTURE_WAVE:
-        ai_ui_disp_msg(AI_UI_DISP_EMOTION, (uint8_t *)EMOJI_WINK, strlen(EMOJI_WINK));
-        break;
-    default:
-        return;
-    }
-
-    // Return to weather clock is now handled by emoji rotation counter
-    // No need for separate timer - emoji UI will send return message when all emotions are rotated
-#else
-    switch (gesture) {
-    case GESTURE_RIGHT:
-        _s_servo_action = SERVO_RIGHT;
-        break;
-    case GESTURE_LEFT:
-        _s_servo_action = SERVO_LEFT;
-        break;
-    case GESTURE_UP:
-        _s_servo_action = SERVO_UP;
-        break;
-    case GESTURE_DOWN:
-        _s_servo_action = SERVO_DOWN;
-        break;
-    case GESTURE_CLOCKWISE:
-        _s_servo_action = SERVO_CLOCKWISE;
-        break;
-    case GESTURE_ANTICLOCKWISE:
-        _s_servo_action = SERVO_ANTICLOCKWISE;
-        break;
-    case GESTURE_FORWARD:
-        _s_servo_action = SERVO_NOD;
-        break;
-    case GESTURE_BACKWARD:
-        _s_servo_action = SERVO_CENTER;
-        break;
-    default:
-        return;
-    }
-#endif
-
-    if (!_s_servo_busy) {
-        tal_workq_schedule(WORKQ_SYSTEM, __servo_control_wk_cb, NULL);
-    }
-}
-
 OPERATE_RET audio_dp_obj_proc(dp_obj_recv_t *dpobj)
 {
     uint32_t index = 0;
@@ -240,17 +119,11 @@ OPERATE_RET audio_dp_obj_proc(dp_obj_recv_t *dpobj)
             uint8_t volume = dp->value.dp_value;
             PR_DEBUG("volume:%d", volume);
             ai_chat_set_volume(volume);
-            break;
-        }
-        case DPID_SERVO: {
-            uint8_t servo_action = dp->value.dp_value;
-            PR_DEBUG("servo action:%d", servo_action);
-            if (servo_action < SERVO_MAX) {
-                _s_servo_action = (SERVO_ACTION_E)servo_action;
-                if (!_s_servo_busy) {
-                    tal_workq_schedule(WORKQ_SYSTEM, __servo_control_wk_cb, NULL);
-                }
-            }
+#if defined(ENABLE_CHAT_DISPLAY) && (ENABLE_CHAT_DISPLAY == 1)
+            char volume_str[20] = {0};
+            snprintf(volume_str, sizeof(volume_str), "%s%d", VOLUME, volume);
+            ai_ui_disp_msg(AI_UI_DISP_NOTIFICATION, (uint8_t *)volume_str, strlen(volume_str));
+#endif
             break;
         }
         default:
@@ -296,15 +169,40 @@ void user_event_handler_on(tuya_iot_client_t *client, tuya_event_msg_t *event)
 #if defined(ENABLE_COMP_AI_AUDIO) && (ENABLE_COMP_AI_AUDIO == 1)
         ai_audio_player_alert(AI_AUDIO_ALERT_NETWORK_CFG);
 #endif
+
         break;
+
+    /* Print the QRCode for Tuya APP bind */
+    case TUYA_EVENT_DIRECT_MQTT_CONNECTED: {
+#if defined(ENABLE_QRCODE) && (ENABLE_QRCODE == 1)
+        char buffer[255];
+        sprintf(buffer, "https://smartapp.tuya.com/s/p?p=%s&uuid=%s&v=2.0", TUYA_PRODUCT_ID, license.uuid);
+        qrcode_string_output(buffer, user_log_output_cb, 0);
+#endif
+    } break;
+
+    case TUYA_EVENT_BIND_TOKEN_ON:
+        break;
+
     /* MQTT with tuya cloud is connected, device online */
     case TUYA_EVENT_MQTT_CONNECTED:
         PR_INFO("Device MQTT Connected!");
+
         static uint8_t first = 1;
         if (first) {
             first = 0;
+
+#if defined(ENABLE_CHAT_DISPLAY) && (ENABLE_CHAT_DISPLAY == 1)
+            UI_WIFI_STATUS_E wifi_status = UI_WIFI_STATUS_GOOD;
+            ai_ui_disp_msg(AI_UI_DISP_NETWORK, (uint8_t *)&wifi_status, sizeof(UI_WIFI_STATUS_E));
+#endif
             ai_audio_volume_upload();
         }
+        break;
+
+    /* MQTT with tuya cloud is disconnected, device offline */
+    case TUYA_EVENT_MQTT_DISCONNECT:
+        PR_INFO("Device MQTT DisConnected!");
         break;
 
     /* RECV upgrade request */
@@ -314,6 +212,7 @@ void user_event_handler_on(tuya_iot_client_t *client, tuya_event_msg_t *event)
 
     /* Sync time with tuya Cloud */
     case TUYA_EVENT_TIMESTAMP_SYNC:
+        PR_INFO("Sync timestamp:%d", event->value.asInteger);
         tal_event_publish("app.time.sync", NULL);
         break;
 
@@ -466,10 +365,12 @@ void user_main(void)
         PR_ERR("app_chat_bot_init failed");
     }
 
-    ret = app_clock_init();
+#if defined(ENABLE_BATTERY) && (ENABLE_BATTERY == 1)
+    ret = app_battery_init();
     if (ret != OPRT_OK) {
-        PR_ERR("app_clock_init failed");
+        PR_ERR("app_battery_init failed");
     }
+#endif
 
     /* Start tuya iot task */
     tuya_iot_start(&ai_client);
@@ -477,16 +378,6 @@ void user_main(void)
     tkl_wifi_set_lp_mode(0, 0);
 
     reset_netconfig_check();
-
-    ret = app_servo_init();
-    if (ret != OPRT_OK) {
-        PR_ERR("app_servo_init failed: %d", ret);
-    }
-
-    ret = app_gesture_init(__gesture_detect_cb);
-    if (ret != OPRT_OK) {
-        PR_ERR("app_gesture_init failed: %d", ret);
-    }
 
     for (;;) {
         /* Loop to receive packets, and handles client keepalive */
