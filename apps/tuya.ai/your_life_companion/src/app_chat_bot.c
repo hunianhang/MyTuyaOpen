@@ -11,6 +11,9 @@
 
 #include "ai_chat_main.h"
 #include "app_chat_bot.h"
+#include "app_weather.h"
+#include "app_alarm.h"
+#include "app_todo.h"
 
 #if defined(ENABLE_WIFI) && (ENABLE_WIFI == 1)
 #include "tkl_wifi.h"
@@ -179,6 +182,9 @@ OPERATE_RET app_chat_bot_init(void)
 
 #if defined(ENABLE_COMP_AI_MCP) && (ENABLE_COMP_AI_MCP == 1)
     TUYA_CALL_ERR_RETURN(ai_mcp_init());
+    TUYA_CALL_ERR_LOG(app_weather_init());
+    TUYA_CALL_ERR_LOG(app_alarm_init());
+    TUYA_CALL_ERR_LOG(app_todo_init());
 #endif
 
 #if defined(ENABLE_COMP_AI_PICTURE) && (ENABLE_COMP_AI_PICTURE == 1)
